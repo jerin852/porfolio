@@ -1,3 +1,8 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Jerin R Portfolio</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
@@ -178,6 +183,9 @@ footer{padding-block:28px;display:flex;justify-content:space-between;gap:12px;fl
 .resume dd{margin:0;color:var(--muted)}
 .resume .item{margin-bottom:14px}
 </style>
+</head>
+<body>
+
 
 <header class="nav">
   <div class="wrap">
@@ -537,28 +545,75 @@ footer{padding-block:28px;display:flex;justify-content:space-between;gap:12px;fl
   modal.addEventListener('click',function(e){if(e.target===modal||e.target.id==='mclose')closeProject()});
   document.addEventListener('keydown',function(e){if(e.key==='Escape'&&!modal.hidden)closeProject()});
 
-  var form=document.getElementById('enquiry'),st=document.getElementById('status');
+  var form=document.getElementById('enquiry');
+  var st=document.getElementById('status');
+  var sendBtn=document.getElementById('sendBtn');
+
   form.addEventListener('submit',function(e){
     e.preventDefault();
-    var n=document.getElementById('fName').value.trim(),
-        m=document.getElementById('fEmail').value.trim(),
-        g=document.getElementById('fMsg').value.trim();
+
+    var name=document.getElementById('fName').value.trim();
+    var email=document.getElementById('fEmail').value.trim();
+    var message=document.getElementById('fMsg').value.trim();
+    var website=document.getElementById('fWeb').value.trim();
+
     st.className='status';
-    if(!n||!m||!g){st.textContent='Please fill in your name, email and message.';return}
-    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m)){st.textContent='That email address looks incomplete. Please check it.';return}
-    var ENDPOINT='/api/enquiry';
-    if(ENDPOINT){
-      var btn=document.getElementById('sendBtn');btn.disabled=true;st.textContent='Sending...';
-      fetch(ENDPOINT,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,email:m,message:g,website:document.getElementById('fWeb').value})})
-        .then(function(r){if(!r.ok)throw new Error('bad');form.reset();st.className='status ok';st.textContent='Thank you. Your enquiry has been sent and I will reply by email soon.'})
-        .catch(function(){st.textContent='Sorry, that did not send. Please email me directly at rsjerin33@gmail.com.'})
-        .then(function(){btn.disabled=false});
+    st.textContent='';
+
+    if(!name||!email||!message){
+      st.textContent='Please fill in your name, email and message.';
       return;
     }
-    var body='Name: '+n+'\nEmail: '+m+'\n\n'+g;
-    var href='mailto:rsjerin33@gmail.com?subject='+encodeURIComponent('Portfolio enquiry from '+n)+'&body='+encodeURIComponent(body);
-    st.className='status ok';
-    st.innerHTML='Your enquiry is ready. <a href="'+href+'">Open it in your mail app</a>, or email me directly at rsjerin33@gmail.com.';
+
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){
+      st.textContent='That email address looks incomplete. Please check it.';
+      return;
+    }
+
+    sendBtn.disabled=true;
+    st.textContent='Sending your enquiry...';
+
+    fetch('/api/enquiry',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        name:name,
+        email:email,
+        message:message,
+        website:website
+      })
+    })
+    .then(function(response){
+      return response.json().catch(function(){return {};}).then(function(data){
+        if(!response.ok||data.ok===false){
+          throw new Error(data.error||('Request failed with status '+response.status));
+        }
+        return data;
+      });
+    })
+    .then(function(){
+      form.reset();
+      st.className='status ok';
+      st.textContent='Thank you! Your enquiry has been sent successfully. I will reply by email soon.';
+    })
+    .catch(function(error){
+      console.error('Portfolio enquiry submission failed:',error);
+      st.className='status';
+      st.textContent='Sorry, your enquiry could not be sent automatically. ';
+
+      var body='Name: '+name+'\nEmail: '+email+'\n\n'+message;
+      var fallback=document.createElement('a');
+      fallback.href='mailto:rsjerin33@gmail.com?subject='+encodeURIComponent('Portfolio enquiry from '+name)+'&body='+encodeURIComponent(body);
+      fallback.textContent='Click here to email me directly';
+      st.appendChild(fallback);
+      st.appendChild(document.createTextNode('.'));
+    })
+    .then(function(){
+      sendBtn.disabled=false;
+    });
   });
 })();
 </script>
+
+</body>
+</html>
