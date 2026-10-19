@@ -1,50 +1,143 @@
-// Vercel serverless function: sends each portfolio enquiry to your Gmail using the Gmail API.
-// Required environment variables (set in Vercel > Project > Settings > Environment Variables):
-//   GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN
-// Optional: ENQUIRY_TO (defaults to rsjerin33@gmail.com)
 const { google } = require('googleapis');
 
-const clean = (s) => String(s || '').replace(/[\r\n]+/g, ' ').trim();
-const b64url = (s) =>
-  Buffer.from(s, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const ENQUIRY_TO = (
+  process.env.ENQUIRY_TO || 'rsjerin33@gmail.com'
+).trim();
 
-module.exports = async (req, res) => {
-  if (req.method !== 'POST') return res.status(405).json({ ok: false });
+function clean(value) {
+  return String(value || '')
+    .replace(/[\r\n]+/g, ' ')
+    .trim();
+}
 
-  const body = req.body || {};
-  if (body.website) return res.status(200).json({ ok: true }); // honeypot: bots fill this field
+function base64Url(value) {
+  return Buffer.from(value, 'utf8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
 
-  const name = clean(body.name).slice(0, 100);
-  const email = clean(body.email).slice(0, 150);
-  const message = String(body.message || '').trim().slice(0, 4000);
-  if (!name || !message || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-    return res.status(400).json({ ok: false, error: 'Invalid input' });
+module.exports = async function handler(req, res) {
+  // POST requests only
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST');
+
+    return res.status(405).json({
+      ok: false,
+      error: 'Method not allowed',
+    });
   }
 
   try {
-    const auth = new google.auth.OAuth2(process.env.GMAIL_CLIENT_ID, process.env.GMAIL_CLIENT_SECRET);
-    auth.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
-    const gmail = google.gmail({ version: 'v1', auth });
+    const body = req.body || {};
 
-    const to = process.env.ENQUIRY_TO || 'rsjerin33@gmail.com';
+    // Spam honeypot
+    if (body.website) {
+      return res.status(200).json({
+        ok: true,
+        message: 'Enquiry received.',
+      });
+    }
+
+    // Validate form input
+    const name = clean(body.name).slice(0, 100);
+    const email = clean(body.email).slice(0, 150);
+    const message = String(body.message || '')
+      .trim()
+      .slice(0, 4000);
+
+    const validEmail =
+      /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
+
+    if (!name || !validEmail || !message) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Please enter a valid name, email, and message.',
+      });
+    }
+
+    // Read server-side environment variables
+    const clientId = process.env.GMAIL_CLIENT_ID?.trim();
+    const clientSecret = process.env.GMAIL_CLIENT_SECRET?.trim();
+    const refreshToken = process.env.GMAIL_REFRESH_TOKEN?.trim();
+
+    if (!clientId || !clientSecret || !refreshToken) {
+      console.error(
+        'Gmail configuration error: required environment variable missing.'
+      );
+
+      return res.status(500).json({
+        ok: false,
+        error: 'Email service is not configured.',
+      });
+    }
+
+    // Authenticate using Google OAuth2
+    const auth = new google.auth.OAuth2(
+      clientId,
+      clientSecret
+    );
+
+    auth.setCredentials({
+      refresh_token: refreshToken,
+    });
+
+    const gmail = google.gmail({
+      version: 'v1',
+      auth,
+    });
+
+    // Create email
     const subject = `Portfolio enquiry from ${name}`;
-    const mime = [
-      `To: ${to}`,
+
+    const mimeMessage = [
+      `To: ${ENQUIRY_TO}`,
       `Reply-To: ${email}`,
-      `Subject: =?UTF-8?B?${Buffer.from(subject, 'utf8').toString('base64')}?=`,
+      `Subject: =?UTF-8?B?${Buffer.from(
+        subject,
+        'utf8'
+      ).toString('base64')}?=`,
       'MIME-Version: 1.0',
-      'Content-Type: text/plain; charset="UTF-8"',
+      'Content-Type: text/plain; charset=UTF-8',
+      'Content-Transfer-Encoding: 8bit',
       '',
       `Name: ${name}`,
       `Email: ${email}`,
       '',
+      'Message:',
       message,
     ].join('\r\n');
 
-    await gmail.users.messages.send({ userId: 'me', requestBody: { raw: b64url(mime) } });
-    return res.status(200).json({ ok: true });
-  } catch (err) {
-    console.error('Gmail send failed', err && err.message);
-    return res.status(500).json({ ok: false });
+    // Send through Gmail API
+    const result = await gmail.users.messages.send({
+      userId: 'me',
+      requestBody: {
+        raw: base64Url(mimeMessage),
+      },
+    });
+
+    console.log('Gmail enquiry sent successfully.');
+
+    return res.status(200).json({
+      ok: true,
+      message: 'Enquiry sent successfully.',
+      id: result.data.id,
+    });
+  } catch (error) {
+    // Diagnostic information for Vercel Runtime Logs.
+    // Never log OAuth secrets or tokens.
+    console.error('Gmail send failed:', {
+      code: error?.code,
+      status: error?.response?.status,
+      details: error?.response?.data?.error || error?.message,
+      description:
+        error?.response?.data?.error_description,
+    });
+
+    return res.status(500).json({
+      ok: false,
+      error: 'Could not send enquiry. Please try again later.',
+    });
   }
 };
